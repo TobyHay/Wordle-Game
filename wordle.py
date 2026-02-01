@@ -1,6 +1,11 @@
 import random
 import requests
 from bs4 import BeautifulSoup
+from argparse import ArgumentParser
+
+parser = ArgumentParser()
+parser.add_argument("-w", "--word", type=str)
+args = parser.parse_args()
 
 
 def intro_message() -> None:
@@ -14,8 +19,8 @@ def import_words() -> tuple[list, list]:
     url_1 = 'https://gist.githubusercontent.com/scholtes/94f3c0303ba6a7768b47583aff36654d/raw/d9cddf5e16140df9e14f19c2de76a0ef36fd2748/wordle-La.txt'
     url_2 = 'https://gist.githubusercontent.com/scholtes/94f3c0303ba6a7768b47583aff36654d/raw/d9cddf5e16140df9e14f19c2de76a0ef36fd2748/wordle-Ta.txt'
 
-    response_1 = requests.get(url_1)
-    response_2 = requests.get(url_2)
+    response_1 = requests.get(url_1, timeout=10)
+    response_2 = requests.get(url_2, timeout=10)
 
     soup_1 = BeautifulSoup(response_1.text, 'html.parser')
     soup_2 = BeautifulSoup(response_2.text, 'html.parser')
@@ -29,7 +34,7 @@ def import_words() -> tuple[list, list]:
     return (answer_list, word_list)
 
 
-def output(guesses, results, attempt, keyboard) -> None:
+def output(guesses: list[str], results: list[str], attempt: int, keyboard: list[str]) -> None:
     for n in range(attempt):
         print("    {} <- {}\n".format(" ".join(results[n-1]), guesses[n]))
 
@@ -39,12 +44,16 @@ def output(guesses, results, attempt, keyboard) -> None:
     print(" ".join(keyboard))
 
 
-def user_input(attempt) -> str:
-    value = input("Guess {}/6: ".format(attempt+1)).lower()
+def user_input(attempt: int) -> str:
+    print(("Guess {}/6: ".format(attempt+1)).lower())
+    if attempt == 0 and args.word:
+        return args.word
+
+    value = input(f"Guess {attempt+1}/6: ").lower().strip()
     return value
 
 
-def valid_input(value, alphabet) -> bool:
+def valid_input(value: str, alphabet: list[str]) -> bool:
     if len(value) != 5:
         print('Guess must be 5 letters long')
         return False
@@ -89,73 +98,149 @@ def remove_correct_letters(current_guess, wordle) -> list:
     return letters_left
 
 
-def win_game(wordle, guess) -> bool:
-    if list(guess) == wordle:
+def win_game(wordle: list[str], guess: str) -> bool:
+    if guess and list(guess) == wordle:
         print('Well done, you win!')
         return True
 
 
-def lose_game(attempt, wordle) -> bool:
+def lose_game(attempt: int, wordle: list[str]) -> bool:
     if attempt > 5:
         print('You lost! The word was {}'.format("".join(wordle).upper()))
         return True
 
 
-# ---------------------- Incomplete ----------------------
-def get_current_info(guesses, wordle) -> dict:
-    current_info = {}
+# ---------------------- Incomplete  ----------------------
+def get_letter_info(guesses: list[str], wordle: list[str], alphabet: list[str]) -> dict:
+
+    correct_word = [0, 0, 0, 0, 0]
+    wrong_letters = {letter: [] for letter in alphabet}
+
     for guess in guesses:
-
-        print(guess)
-
         for i, letter in enumerate(guess.lower()):
-            # Correct Spot
-            if letter == wordle[i]:
-                current_info[letter] = [i]
+            # No Spot
+            if letter not in wordle:
+                wrong_letters[letter] = [0, 1, 2, 3, 4]
 
             # Wrong Spot
-            # elif letter in wordle:
-            #    current_info[letter] = list(range(5))
-            #    current_info[letter].remove(i)
-            #    print(f"{letter} in {guess} in in wrong Spot")
+            elif letter != wordle[i]:
+                wrong_letters[letter].append(i)
+                correct_word.append(letter)
 
-#     for key in current_info:
-#       if len(key.values()) == 1:
-#            remove all other key values with this value
-    print(current_info)
-    return current_info
-
-# example -> current_info = {'a': [0, 1, 2, 3],'b': [1, 2, 3, 4]}
+            # Correct Spot
+            elif letter == wordle[i]:
+                correct_word[i] = letter
+    return correct_word, wrong_letters
 
 
-def get_words_left(answer_list, current_info):
-    answer_clone = answer_list[::]
+def show_words_left(answer_list, info) -> None:
+    correct_word, wrong_letters = info
+    answers = answer_list[::]
 
-    print("Possible answers:")
     for word in answer_list:
-        remove_word = False
-        if word not in answer_clone:
-            continue
 
-        # word[0]:
-        if word[0] in current_info and 0 in current_info[word[0]]:
-            ...
-        if current_info.get(word[0], None).get(0) is not None:
-            ...
+        # Remove word if it doesn't include known correct letter
+        for letter in correct_word:
+            if letter and letter not in word:
+                answers.remove(word) if word in answers else None
 
         for i, letter in enumerate(word):
-            if letter not in current_info.keys() or i not in current_info[letter]:
-                remove_word = True
 
-        if remove_word:
-            answer_clone.remove(word)
+            # Remove word if letter is in a defined correct spot
+            if correct_word[i] and letter != correct_word[i]:
+                answers.remove(word) if word in answers else None
 
-    print(answer_clone)
-    print(len(answer_clone))
+            # Remove word if letter is in a defined wrong spot
+            elif i in wrong_letters.get(letter):
+                answers.remove(word) if word in answers else None
+
+    column_output = ""
+    for i in range(0, len(answers)//4):
+        i *= 4
+        column_output += answers[i] + "  " + answers[i+1] + \
+            "  " + answers[i+2] + "  " + answers[i+3] + "\n"
+    remainder = len(answers) % 4
+    if remainder:
+        last_row = "  ".join(answers[-remainder:])
+        column_output += last_row
+
+    print(f"{"\n"*20}")
+    print(f"Possible answers: {len(answers)}")
+    print(column_output)
+    # ---------------------- Incomplete  ----------------------
+
+
+def guess():
+    alphabet = list('abcdefghijklmnopqrstuvwxyz')
+
+    correct_word = [0, 0, 0, 0, 0]
+    wrong_letters = {letter: [] for letter in alphabet}
+
+    print("Enter green letters in order, with 0 for unknown.")
+    incorrect_input = True
+    while incorrect_input:
+        green = input("Green: ").lower()
+        if green == "q":
+            return
+
+        if not green:
+            incorrect_input = False
+        if len(green) == 5:
+            incorrect_input = False
+
+    print("Enter yellow letters with the position number after.\ne.g. a0 b1 c2 ...")
+    yellow = input("Yellow: ").lower()
+    if yellow == "q":
+        return
+
+    yellows = yellow.split(" ")
+
+    incorrect_input = True
+    while incorrect_input:
+        print("Enter all wrong letters")
+        grey = input("Wrong: ").lower()
+        if grey == "q":
+            return
+
+        incorrect_input = False
+        for letter in grey:
+            if letter not in alphabet:
+                incorrect_input = True
+
+    # Green
+    if green:
+        for i, letter in enumerate(green):
+            if letter != "0":
+                correct_word[i] = letter
+
+    # Yellow
+    if yellow:
+        for letter in yellows:
+            i = int(letter[1])
+
+            print(wrong_letters)
+            wrong_letters[letter[0]].append(i)
+            correct_word.append(letter[0])
+
+    # Grey
+    if grey:
+        for letter in grey:
+            wrong_letters[letter] = [0, 1, 2, 3, 4]
+
+    # ---- Debugging ----
+    # print()
+    # print(correct_word)
+    # print()
+    # print(wrong_letters)
+
+    info = correct_word, wrong_letters
+    show_words_left(answer_list, info)
 
 
 # ---------------------- Main Game Code ---------------------
-def playgame() -> None:
+
+
+def play() -> None:
 
     alphabet = list('abcdefghijklmnopqrstuvwxyz')
     keyboard = list('QWERTYUIOP\nASDFGHJKL\n ZXCVBNM\n')
@@ -164,9 +249,10 @@ def playgame() -> None:
     results = [['_']*5, ['_']*5, ['_']*5, ['_']*5, ['_']*5, ['_']*5,]
 
     intro_message()
+    # input("Press enter to start:\n")
 
     attempt = 0
-    current_guess = []
+    current_guess = ""
     while True:
         output(guesses, results, attempt, keyboard)
 
@@ -183,8 +269,8 @@ def playgame() -> None:
             break
 
         if current_guess == "1":
-            current_info = get_current_info(guesses, wordle)
-            get_words_left(answer_list, current_info)
+            info = get_letter_info(guesses, wordle, alphabet)
+            show_words_left(answer_list, info)
 
             if input("Press enter to continue playing:").upper() == "Q":
                 print('Task quit successfully')
@@ -206,6 +292,11 @@ wordle_num = random.randint(0, len(answer_list))
 
 wordle = list(answer_list[wordle_num])
 
-current_info = {}
+# GIVE CUSSTOM ANSWER
+custom_answer = ""
+if custom_answer:
+    wordle = list(custom_answer)
 
-playgame()
+if __name__ == "__main__":
+    play()
+    # guess()
